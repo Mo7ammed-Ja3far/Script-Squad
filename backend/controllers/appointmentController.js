@@ -1,147 +1,66 @@
 const appointmentService = require('../services/appointmentService');
-const queueService = require('../services/queueService');
+const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
 
-/**
- * @swagger
- * /api/appointments/book:
- *   post:
- *     summary: Book a new appointment
- *     tags: [Appointments]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - doctorId
- *               - date
- *               - time
- *             properties:
- *               doctorId:
- *                 type: string
- *               date:
- *                 type: string
- *                 example: "YYYY-MM-DD"
- *               time:
- *                 type: string
- *                 example: "HH:MM"
- *               notes:
- *                 type: string
- *     responses:
- *       201:
- *         description: Appointment booked successfully
- */
-const book = async (req, res, next) => {
+const book = async (req, res) => {
   try {
-    const payload = {
-      ...req.body,
-      patientId: req.user.id
-    };
-    const appointment = await appointmentService.bookAppointment(payload);
-    res.status(201).json({ success: true, data: appointment });
-  } catch (error) {
-    if (error.message === 'This time slot is already booked') {
-      res.status(400);
-    }
-    next(error);
+    const appointment = await appointmentService.bookAppointment({
+      patientId: req.user._id,
+      ...req.body
+    });
+    res.status(201).json(successResponse({ appointment }, 'Appointment booked successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
   }
 };
 
-/**
- * @swagger
- * /api/appointments/my-appointments:
- *   get:
- *     summary: Get logged-in patient's appointments
- *     tags: [Appointments]
- *     security:
- *       - bearerAuth: []
- */
-const getMyAppointments = async (req, res, next) => {
+const getOne = async (req, res) => {
   try {
-    const appointments = await appointmentService.getPatientAppointments(req.user.id);
-    res.status(200).json({ success: true, count: appointments.length, data: appointments });
-  } catch (error) {
-    next(error);
+    const appointment = await appointmentService.getAppointmentById(req.params.id, req.user);
+    res.status(200).json(successResponse({ appointment }, 'Appointment retrieved successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
   }
 };
 
-/**
- * @swagger
- * /api/appointments/schedule:
- *   get:
- *     summary: Get doctor's schedule
- *     tags: [Appointments]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: query
- *         name: date
- *         schema:
- *           type: string
- *           example: "YYYY-MM-DD"
- */
-const getSchedule = async (req, res, next) => {
+const list = async (req, res) => {
   try {
-    const { date } = req.query;
-    const appointments = await appointmentService.getDoctorSchedule(req.user.id, date);
-    res.status(200).json({ success: true, count: appointments.length, data: appointments });
-  } catch (error) {
-    next(error);
+    const { status, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
+    const { appointments, total } = await appointmentService.listAppointments({
+      userId: req.user._id,
+      role: req.user.role,
+      status, dateFrom, dateTo, page, limit
+    });
+    res.status(200).json(paginatedResponse({ appointments }, 'Appointments retrieved successfully.', page, limit, total));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
   }
 };
 
-/**
- * @swagger
- * /api/appointments/{id}/status:
- *   patch:
- *     summary: Update appointment status (Cancel, Confirm, etc.)
- *     tags: [Appointments]
- *     security:
- *       - bearerAuth: []
- */
-const updateStatus = async (req, res, next) => {
+const cancel = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { status } = req.body;
-    const appointment = await appointmentService.updateAppointmentStatus(id, status, req.user.id, req.user.role);
-    res.status(200).json({ success: true, data: appointment });
-  } catch (error) {
-    if (error.message === 'Unauthorized to modify this appointment' || error.message === 'Patients can only cancel appointments') {
-      res.status(403);
-    } else if (error.message === 'Appointment not found') {
-      res.status(404);
-    }
-    next(error);
+    const appointment = await appointmentService.cancelAppointment(req.params.id, req.user, req.body.reason);
+    res.status(200).json(successResponse({ appointment }, 'Appointment cancelled successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
   }
 };
 
-/**
- * @swagger
- * /api/appointments/join-queue:
- *   post:
- *     summary: Join a live queue for a walk-in today
- *     tags: [Appointments]
- */
-const joinLiveQueue = async (req, res, next) => {
+const reschedule = async (req, res) => {
   try {
-    const { doctorId } = req.body;
-    const queueEntry = await queueService.joinLiveQueue(req.user.id, doctorId);
-    res.status(201).json({ success: true, data: queueEntry });
-  } catch (error) {
-    if (error.message === 'You are already in the queue for today' || error.message === 'Invalid doctor') {
-      res.status(400);
-    }
-    next(error);
+    const appointment = await appointmentService.rescheduleAppointment(req.params.id, req.user, req.body);
+    res.status(200).json(successResponse({ appointment }, 'Appointment rescheduled successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
   }
 };
 
-module.exports = {
-  book,
-  getMyAppointments,
-  getSchedule,
-  updateStatus,
-  joinLiveQueue
+const availability = async (req, res) => {
+  try {
+    const data = await appointmentService.getDoctorAvailability(req.params.doctorId, req.query.date);
+    res.status(200).json(successResponse(data, 'Availability retrieved successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
 };
+
+module.exports = { book, getOne, list, cancel, reschedule, availability };

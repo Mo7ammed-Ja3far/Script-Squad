@@ -1,45 +1,73 @@
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
-const socketIoSetup = (io) => {
-  // Socket.io Authentication Middleware
-  io.use((socket, next) => {
+const connectedUsers = new Map();
+
+const initSockets = (io) => {
+  io.use(async (socket, next) => {
     try {
-      // Allow passing token in handshake auth or query
-      const token = socket.handshake.auth.token || socket.handshake.query.token;
-      
-      if (!token) {
-        return next(new Error('Authentication error: No token provided'));
-      }
+      const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+      if (!token) return next(new Error('Authentication token is required.'));
 
-      // Verify JWT
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
-      socket.user = decoded; // Attach user info to socket
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const user = await User.findById(decoded.id).select('-password');
+
+      if (!user || !user.isActive) return next(new Error('Authentication failed.'));
+
+      socket.user = user;
       next();
-    } catch (err) {
-      return next(new Error('Authentication error: Invalid token'));
+    } catch {
+      next(new Error('Invalid or expired token.'));
     }
   });
 
   io.on('connection', (socket) => {
-    console.log(`🔌 New client connected: ${socket.id} (User ID: ${socket.user.id}, Role: ${socket.user.role})`);
+    const { _id: userId, role, name } = socket.user;
+    const userIdStr = userId.toString();
 
-    // Patient or Doctor joins a room specific to a doctor or clinic (for the day)
-    // The client should emit a 'joinRoom' event with the roomName (e.g. `doctor_${doctorId}`)
-    socket.on('joinRoom', (roomName) => {
-      socket.join(roomName);
-      console.log(`User ${socket.user.id} joined room: ${roomName}`);
+    connectedUsers.set(userIdStr, socket.id);
+    console.log(`🔌 [Socket] Connected: ${name} (${role}) — ${socket.id}`);
+
+    socket.join(`user:${userIdStr}`);
+    socket.join(`role:${role}`);
+
+    socket.emit('CONNECTED', {
+      message: 'Socket connected successfully.',
+      userId: userIdStr,
+      role
     });
 
-    // Leave room
-    socket.on('leaveRoom', (roomName) => {
-      socket.leave(roomName);
-      console.log(`User ${socket.user.id} left room: ${roomName}`);
+    socket.on('JOIN_DOCTOR_QUEUE_ROOM', ({ doctorId }) => {
+      if (role === 'doctor' && userIdStr === doctorId) {
+        socket.join(`queue:${doctorId}`);
+        socket.emit('QUEUE_ROOM_JOINED', { doctorId });
+      } else if (role === 'admin') {
+        socket.join(`queue:${doctorId}`);
+        socket.emit('QUEUE_ROOM_JOINED', { doctorId });
+      }
+    });
+
+    socket.on('LEAVE_DOCTOR_QUEUE_ROOM', ({ doctorId }) => {
+      socket.leave(`queue:${doctorId}`);
     });
 
     socket.on('disconnect', () => {
-      console.log(`🔌 Client disconnected: ${socket.id}`);
+      connectedUsers.delete(userIdStr);
+      console.log(`🔌 [Socket] Disconnected: ${name} (${role}) — ${socket.id}`);
     });
   });
 };
 
-module.exports = socketIoSetup;
+const emitToUser = (io, userId, event, payload) => {
+  io.to(`user:${userId.toString()}`).emit(event, payload);
+};
+
+const emitToRole = (io, role, event, payload) => {
+  io.to(`role:${role}`).emit(event, payload);
+};
+
+const emitToQueueRoom = (io, doctorId, event, payload) => {
+  io.to(`queue:${doctorId.toString()}`).emit(event, payload);
+};
+
+module.exports = { initSockets, emitToUser, emitToRole, emitToQueueRoom, connectedUsers };

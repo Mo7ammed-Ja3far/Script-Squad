@@ -3,16 +3,13 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 const { protect, authorize } = require('../middlewares/auth');
 
-// Apply protection to all routes in this file
-router.use(protect);
-router.use(authorize('admin'));
+router.use(protect, authorize('admin'));
 
-// User Management
-router.get('/users', adminController.getUsers);
+router.get('/dashboard', adminController.getDashboard);
+router.get('/users', adminController.listUsers);
+router.get('/users/:id', adminController.getUser);
+router.patch('/users/:id', adminController.updateUser);
 router.delete('/users/:id', adminController.deleteUser);
-
-// Appointment Management
-router.get('/appointments', adminController.getAppointments);
-router.delete('/appointments/:id', adminController.deleteAppointment);
+router.get('/appointments', adminController.listAppointments);
 
 module.exports = router;

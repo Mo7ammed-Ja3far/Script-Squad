@@ -1,31 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const validate = require('../middlewares/validate');
-const { z } = require('zod');
+const { protect } = require('../middlewares/auth');
+const { validate, schemas } = require('../middlewares/validate');
 
-// Zod Validation Schemas
-const registerSchema = {
-  body: z.object({
-    name: z.string().min(2, 'Name must be at least 2 characters'),
-    email: z.string().email('Invalid email address'),
-    password: z.string().min(6, 'Password must be at least 6 characters'),
-    role: z.enum(['patient', 'doctor', 'admin']),
-    phone: z.string().optional(),
-    department: z.string().optional(),
-    bio: z.string().optional()
-  }).strict()
-};
-
-const loginSchema = {
-  body: z.object({
-    email: z.string().email('Invalid email address'),
-    password: z.string().min(1, 'Password is required')
-  }).strict()
-};
-
-// Routes
-router.post('/register', validate(registerSchema), authController.register);
-router.post('/login', validate(loginSchema), authController.login);
+router.post('/register', validate(schemas.register), authController.register);
+router.post('/login', validate(schemas.login), authController.login);
+router.post('/logout', authController.logout);
+router.post('/verify-otp', validate(schemas.verifyOtp), authController.verifyOtp);
+router.post('/resend-otp', validate(schemas.resendOtp), authController.resendOtp);
+router.post('/forgot-password', validate(schemas.forgotPassword), authController.forgotPassword);
+router.post('/reset-password', validate(schemas.resetPassword), authController.resetPassword);
+router.get('/me', protect, authController.getMe);
+router.patch('/me', protect, authController.updateMe);
 
 module.exports = router;

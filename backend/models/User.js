@@ -2,45 +2,67 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: { type: String, enum: ['patient', 'doctor', 'admin'], required: true },
-  phone: { type: String },
-  
-  // Doctor specific fields
-  department: { type: String },
-  specialization: { type: String },
-  consultationFee: { type: Number },
-  bio: { type: String },
-  experienceYears: { type: Number },
+  name: {
+    type: String,
+    required: [true, 'Name is required'],
+    trim: true,
+    minlength: [2, 'Name must be at least 2 characters']
+  },
+  email: {
+    type: String,
+    required: [true, 'Email is required'],
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  password: {
+    type: String,
+    required: [true, 'Password is required'],
+    minlength: [6, 'Password must be at least 6 characters']
+  },
+  role: {
+    type: String,
+    enum: ['patient', 'doctor', 'admin'],
+    required: [true, 'Role is required']
+  },
+  phone: { type: String, trim: true },
+  whatsappNumber: {
+    type: String,
+    trim: true,
+    sparse: true
+  },
+  isWhatsappVerified: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: false },
+
+  department: { type: String, trim: true },
+  specialization: { type: String, trim: true },
+  consultationFee: { type: Number, min: 0 },
+  bio: { type: String, trim: true },
+  experienceYears: { type: Number, min: 0 },
   credentials: [{
-    degree: { type: String },
-    institution: { type: String },
+    degree: { type: String, trim: true },
+    institution: { type: String, trim: true },
     year: { type: Number }
   }],
   workingHours: [{
-    dayOfWeek: { type: Number, min: 0, max: 6 }, // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-    startTime: { type: String }, // e.g., "09:00"
-    endTime: { type: String },   // e.g., "17:00"
-    slotDuration: { type: Number, default: 20 }, // duration in minutes
+    dayOfWeek: { type: Number, min: 0, max: 6 },
+    startTime: { type: String },
+    endTime: { type: String },
+    slotDuration: { type: Number, default: 20 },
     isDayOff: { type: Boolean, default: false }
   }]
 }, { timestamps: true });
 
-// Indexing for faster queries (especially for doctors by department)
 userSchema.index({ role: 1, department: 1 });
+userSchema.index({ whatsappNumber: 1 }, { sparse: true });
 
-// Encrypt password using bcrypt before saving
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
-    next();
-  }
+  if (!this.isModified('password')) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
 });
 
-// Match user entered password to hashed password in database
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };

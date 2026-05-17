@@ -1,72 +1,31 @@
 const consultationService = require('../services/consultationService');
+const { successResponse, errorResponse } = require('../utils/response');
 
-/**
- * @swagger
- * /api/consultations/complete-and-next:
- *   post:
- *     summary: Complete current consultation and call the next patient in queue
- *     tags: [Consultation]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - currentPatientId
- *               - currentQueueId
- *               - diagnosis
- *             properties:
- *               currentPatientId:
- *                 type: string
- *               currentQueueId:
- *                 type: string
- *               sessionDuration:
- *                 type: number
- *               diagnosis:
- *                 type: string
- *               prescriptionData:
- *                 type: object
- *               emrUpdates:
- *                 type: object
- *               followUpDate:
- *                 type: string
- *     responses:
- *       200:
- *         description: Successfully completed the consultation and advanced queue
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 nextPatient:
- *                   type: object
- *                 message:
- *                   type: string
- */
-const completeAndNextPatient = async (req, res, next) => {
+const complete = async (req, res) => {
   try {
-    // Controller is thin: passes req.body + doctorId (from Auth) to Service
-    const data = {
-      ...req.body,
-      doctorId: req.user.id // assuming req.user is populated by JWT middleware
-    };
-
-    // Grab global io instance (attached to app in server.js)
-    const io = req.app.get('io');
-
-    const result = await consultationService.completeAndCallNext(data, io);
-
-    res.status(200).json(result);
-  } catch (error) {
-    next(error);
+    const result = await consultationService.completeConsultation(req.user._id, req.body);
+    res.status(200).json(successResponse(result, 'Consultation completed successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
   }
 };
 
-module.exports = {
-  completeAndNextPatient
+const getEMR = async (req, res) => {
+  try {
+    const emr = await consultationService.getPatientEMR(req.params.patientId, req.user);
+    res.status(200).json(successResponse({ emr }, 'Medical record retrieved successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
 };
+
+const updateEMR = async (req, res) => {
+  try {
+    const emr = await consultationService.updateEMRBaseInfo(req.params.patientId, req.user._id, req.body);
+    res.status(200).json(successResponse({ emr }, 'Medical record updated successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
+};
+
+module.exports = { complete, getEMR, updateEMR };

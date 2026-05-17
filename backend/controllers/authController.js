@@ -1,130 +1,88 @@
 const authService = require('../services/authService');
+const { successResponse, errorResponse } = require('../utils/response');
 
-const sendTokenResponse = (result, statusCode, res) => {
-  const { user, token } = result;
-  
-  const options = {
-    expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production'
-  };
-
-  res.status(statusCode).cookie('jwt', token, options).json({
-    success: true,
-    token,
-    user
-  });
-};
-
-/**
- * @swagger
- * /api/auth/register:
- *   post:
- *     summary: Register a new user
- *     tags: [Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - name
- *               - email
- *               - password
- *               - role
- *             properties:
- *               name:
- *                 type: string
- *               email:
- *                 type: string
- *               password:
- *                 type: string
- *               role:
- *                 type: string
- *                 enum: [patient, doctor, admin]
- *               phone:
- *                 type: string
- *               department:
- *                 type: string
- *               bio:
- *                 type: string
- *     responses:
- *       201:
- *         description: User registered successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 token:
- *                   type: string
- *                 user:
- *                   type: object
- */
-const register = async (req, res, next) => {
+const register = async (req, res) => {
   try {
-    const result = await authService.registerUser(req.body);
-    sendTokenResponse(result, 201, res);
-  } catch (error) {
-    if (error.message === 'User already exists') {
-      res.status(400);
-    }
-    next(error);
+    const user = await authService.registerUser(req.body);
+    res.status(201).json(successResponse(
+      { user },
+      'Registration successful. An OTP has been sent to your WhatsApp number to activate your account.'
+    ));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
   }
 };
 
-/**
- * @swagger
- * /api/auth/login:
- *   post:
- *     summary: Login user
- *     tags: [Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - password
- *             properties:
- *               email:
- *                 type: string
- *               password:
- *                 type: string
- *     responses:
- *       200:
- *         description: User logged in successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 token:
- *                   type: string
- *                 user:
- *                   type: object
- */
-const login = async (req, res, next) => {
+const verifyOtp = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const result = await authService.loginUser(email, password);
-    sendTokenResponse(result, 200, res);
-  } catch (error) {
-    if (error.message === 'Invalid credentials') {
-      res.status(401);
-    }
-    next(error);
+    const user = await authService.verifyOtp(req.body);
+    res.status(200).json(successResponse({ user }, 'WhatsApp number verified. Account is now active.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
   }
 };
 
-module.exports = {
-  register,
-  login
+const resendOtp = async (req, res) => {
+  try {
+    const result = await authService.resendOtp(req.body);
+    res.status(200).json(successResponse(null, result.message));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
 };
+
+const login = async (req, res) => {
+  try {
+    const data = await authService.loginUser(req.body, res);
+    res.status(200).json(successResponse(data, 'Login successful.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
+};
+
+const logout = (req, res) => {
+  try {
+    authService.logoutUser(res);
+    res.status(200).json(successResponse(null, 'Logged out successfully.'));
+  } catch (err) {
+    res.status(500).json(errorResponse(err.message));
+  }
+};
+
+const forgotPassword = async (req, res) => {
+  try {
+    const result = await authService.forgotPassword(req.body);
+    res.status(200).json(successResponse(null, result.message));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const result = await authService.resetPassword(req.body);
+    res.status(200).json(successResponse(null, result.message));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
+};
+
+const getMe = async (req, res) => {
+  try {
+    const user = await authService.getMe(req.user._id);
+    res.status(200).json(successResponse({ user }, 'Profile retrieved successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
+};
+
+const updateMe = async (req, res) => {
+  try {
+    const user = await authService.updateMe(req.user._id, req.body);
+    res.status(200).json(successResponse({ user }, 'Profile updated successfully.'));
+  } catch (err) {
+    res.status(err.status || 500).json(errorResponse(err.message));
+  }
+};
+
+module.exports = { register, verifyOtp, resendOtp, login, logout, forgotPassword, resetPassword, getMe, updateMe };

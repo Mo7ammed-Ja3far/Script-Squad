@@ -1,19 +1,34 @@
 const mongoose = require('mongoose');
 
 const queueSchema = new mongoose.Schema({
-  doctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  patient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  appointment: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true },
-  date: { type: Date, required: true },
-  status: { 
-    type: String, 
-    enum: ['waiting', 'in-progress', 'completed', 'cancelled'], 
-    default: 'waiting' 
+  doctor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
   },
-  queueNumber: { type: Number, required: true }
+  patient: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  appointment: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Appointment',
+    required: true
+  },
+  date: { type: Date, required: true },
+  status: {
+    type: String,
+    enum: ['waiting', 'in-progress', 'completed', 'cancelled'],
+    default: 'waiting'
+  },
+  queueNumber: { type: Number, required: true },
+  calledAt: { type: Date },
+  completedAt: { type: Date }
 }, { timestamps: true });
 
-// Ensure patients are sorted by queueNumber properly when queried
 queueSchema.index({ doctor: 1, date: 1, queueNumber: 1 });
+queueSchema.index({ doctor: 1, date: 1, status: 1 });
 
 module.exports = mongoose.model('Queue', queueSchema);

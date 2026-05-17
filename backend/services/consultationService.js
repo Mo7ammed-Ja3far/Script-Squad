@@ -1,150 +1,146 @@
 const mongoose = require('mongoose');
-const Queue = require('../models/Queue');
+const Appointment = require('../models/Appointment');
 const EMR = require('../models/EMR');
 const Prescription = require('../models/Prescription');
-const Appointment = require('../models/Appointment');
+const Queue = require('../models/Queue');
+const User = require('../models/User');
+const whatsappService = require('./whatsapp');
 
-/**
- * Handle "Complete & Next Patient" transaction
- */
-const completeAndCallNext = async (data, io) => {
-  const { 
-    doctorId, 
-    currentPatientId, 
-    currentQueueId, 
-    sessionDuration, 
-    diagnosis, 
-    prescriptionData, 
-    emrUpdates, 
-    followUpDate 
-  } = data;
-
-  // Start an ACID transaction
+const completeConsultation = async (doctorId, { appointmentId, diagnosis, medications, notes, followUpDate }) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // 1. Mark current patient queue as Completed
-    const currentQueue = await Queue.findOneAndUpdate(
-      { _id: currentQueueId, doctor: doctorId },
-      { status: 'completed' },
-      { new: true, session }
-    );
-    if (!currentQueue) throw new Error('Current queue entry not found.');
+    const appointment = await Appointment.findById(appointmentId).session(session);
+    if (!appointment) throw { status: 404, message: 'Appointment not found.' };
+    if (appointment.doctor.toString() !== doctorId.toString()) throw { status: 403, message: 'Access denied.' };
+    if (appointment.status === 'completed') throw { status: 400, message: 'This appointment has already been completed.' };
+    if (appointment.status === 'cancelled') throw { status: 400, message: 'Cannot complete a cancelled appointment.' };
 
-    // 2. Mark appointment as Completed
-    await Appointment.findByIdAndUpdate(
-      currentQueue.appointment,
-      { status: 'completed' },
+    let prescription = null;
+    if (medications && medications.length > 0) {
+      [prescription] = await Prescription.create([{
+        patient: appointment.patient,
+        doctor: doctorId,
+        appointment: appointmentId,
+        medications,
+        notes,
+        isActive: true
+      }], { session });
+    }
+
+    let emr = await EMR.findOne({ patient: appointment.patient }).session(session);
+    if (!emr) {
+      [emr] = await EMR.create([{ patient: appointment.patient, history: [] }], { session });
+    }
+
+    const historyEntry = {
+      date: new Date(),
+      doctor: doctorId,
+      appointment: appointmentId,
+      diagnosis,
+      prescription: prescription?._id,
+      notes
+    };
+
+    emr.history.push(historyEntry);
+    await emr.save({ session });
+
+    appointment.status = 'completed';
+    await appointment.save({ session });
+
+    let followUpAppointment = null;
+    if (followUpDate) {
+      const doctor = await User.findById(doctorId).session(session);
+      const followUpDateObj = new Date(followUpDate);
+      const dateStr = followUpDateObj.toISOString().split('T')[0];
+      const timeStr = appointment.time;
+
+      const slotConflict = await Appointment.findOne({ doctor: doctorId, date: dateStr, time: timeStr, status: { $nin: ['cancelled'] } }).session(session);
+      if (!slotConflict) {
+        [followUpAppointment] = await Appointment.create([{
+          patient: appointment.patient,
+          doctor: doctorId,
+          date: dateStr,
+          time: timeStr,
+          type: 'follow-up',
+          status: 'pending',
+          parentSession: appointmentId
+        }], { session });
+      }
+    }
+
+    await Queue.findOneAndUpdate(
+      { appointment: appointmentId, status: 'in-progress' },
+      { status: 'completed', completedAt: new Date() },
       { session }
     );
 
-    // 3. Save Prescription if any
-    let newPrescription = null;
-    if (prescriptionData && prescriptionData.medications && prescriptionData.medications.length > 0) {
-      const createdPrescriptions = await Prescription.create([{
-        patient: currentPatientId,
-        doctor: doctorId,
-        medications: prescriptionData.medications,
-        notes: prescriptionData.notes
-      }], { session });
-      newPrescription = createdPrescriptions[0];
-    }
-
-    // 4. Update EMR (History, Chronic Diseases, Surgeries)
-    const emrUpdateQuery = {
-      $push: {
-        history: {
-          doctor: doctorId,
-          diagnosis,
-          durationMinutes: sessionDuration,
-          prescription: newPrescription ? newPrescription._id : undefined
-        }
-      }
-    };
-    
-    // Add non-duplicate chronic diseases and surgical history
-    if (emrUpdates) {
-      if (emrUpdates.chronicDiseases) {
-        emrUpdateQuery.$addToSet = { ...emrUpdateQuery.$addToSet, chronicDiseases: { $each: emrUpdates.chronicDiseases } };
-      }
-      if (emrUpdates.surgicalHistory) {
-        emrUpdateQuery.$addToSet = { ...emrUpdateQuery.$addToSet, surgicalHistory: { $each: emrUpdates.surgicalHistory } };
-      }
-    }
-
-    await EMR.findOneAndUpdate(
-      { patient: currentPatientId },
-      emrUpdateQuery,
-      { upsert: true, new: true, session }
-    );
-
-    // 5. Create follow-up appointment if requested
-    if (followUpDate) {
-      await Appointment.create([{
-        patient: currentPatientId,
-        doctor: doctorId,
-        date: new Date(followUpDate),
-        type: 'follow-up',
-        parentSession: currentQueue.appointment
-      }], { session });
-    }
-
-    // 6. Fetch Next Patient in Queue & update to in-progress
-    // Assume date is today
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
-
-    const nextQueue = await Queue.findOneAndUpdate(
-      { 
-        doctor: doctorId, 
-        status: 'waiting',
-        date: { $gte: startOfDay, $lte: endOfDay }
-      },
-      { status: 'in-progress' },
-      { sort: { queueNumber: 1 }, new: true, session }
-    ).populate('patient', 'name email');
-
-    // Commit Transaction
     await session.commitTransaction();
     session.endSession();
 
-    // 7. Fire Socket.io Events
-    const roomName = `doctor_${doctorId}`;
-    
-    if (nextQueue) {
-      // Notify the next patient specifically or broadcast to room
-      io.to(roomName).emit('PATIENT_CALLED', {
-        queueNumber: nextQueue.queueNumber,
-        patientId: nextQueue.patient._id,
-        patientName: nextQueue.patient.name,
-        status: 'in-progress'
-      });
+    const [patient, doctor] = await Promise.all([
+      User.findById(appointment.patient).select('name whatsappNumber isWhatsappVerified'),
+      User.findById(doctorId).select('name department')
+    ]);
+
+    if (patient.whatsappNumber && patient.isWhatsappVerified) {
+      whatsappService.sendPostConsultationSummary({
+        patient,
+        doctor,
+        diagnosis,
+        medications: medications || [],
+        prescriptionNotes: notes,
+        followUpDate: followUpAppointment?.date
+      }).catch(err => console.error('[WhatsApp] Post-consultation message failed:', err.message));
     }
 
-    // Broadcast general queue update to the waiting room
-    io.to(roomName).emit('QUEUE_UPDATED', {
-      doctor: doctorId,
-      currentlyServing: nextQueue ? nextQueue.queueNumber : null,
-      message: nextQueue ? 'Queue advanced' : 'No more patients waiting'
-    });
+    const populatedPrescription = prescription
+      ? await Prescription.findById(prescription._id).populate('doctor', 'name department')
+      : null;
 
     return {
-      success: true,
-      nextPatient: nextQueue ? nextQueue : null,
-      message: 'Consultation completed successfully.'
+      appointment,
+      prescription: populatedPrescription,
+      followUpAppointment,
+      emrUpdated: true
     };
-
-  } catch (error) {
-    // Abort Transaction on error
+  } catch (err) {
     await session.abortTransaction();
     session.endSession();
-    throw error;
+    throw err;
   }
 };
 
-module.exports = {
-  completeAndCallNext
+const getPatientEMR = async (patientId, requestingUser) => {
+  if (requestingUser.role === 'patient' && requestingUser._id.toString() !== patientId) {
+    throw { status: 403, message: 'Access denied.' };
+  }
+
+  const emr = await EMR.findOne({ patient: patientId })
+    .populate({ path: 'patient', select: 'name email phone whatsappNumber' })
+    .populate({ path: 'history.doctor', select: 'name department specialization' })
+    .populate({ path: 'history.appointment', select: 'date time type' })
+    .populate({ path: 'history.prescription' });
+
+  if (!emr) throw { status: 404, message: 'No medical record found for this patient.' };
+  return emr;
 };
+
+const updateEMRBaseInfo = async (patientId, doctorId, updates) => {
+  const allowed = ['bloodType', 'height', 'weight', 'chronicDiseases', 'surgicalHistory', 'allergies'];
+  const filtered = {};
+  allowed.forEach(k => { if (updates[k] !== undefined) filtered[k] = updates[k]; });
+
+  const emr = await EMR.findOneAndUpdate(
+    { patient: patientId },
+    { $set: filtered },
+    { new: true, upsert: true, runValidators: true }
+  )
+    .populate({ path: 'patient', select: 'name email phone' })
+    .populate({ path: 'history.doctor', select: 'name department' });
+
+  return emr;
+};
+
+module.exports = { completeConsultation, getPatientEMR, updateEMRBaseInfo };
