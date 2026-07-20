@@ -15,14 +15,16 @@ export default defineConfig({
     port: 5175,
     proxy: {
       "/api": {
-        target: "https://d2a5-197-160-170-109.ngrok-free.app",
+        target:
+          "https://griffin-characteristic-sequence-malpractice.trycloudflare.com",
         changeOrigin: true,
         headers: {
           "ngrok-skip-browser-warning": "true",
         },
       },
       "/socket.io": {
-        target: "https://d2a5-197-160-170-109.ngrok-free.app",
+        target:
+          "https://griffin-characteristic-sequence-malpractice.trycloudflare.com",
         ws: true,
         changeOrigin: true,
         headers: {
@@ -37,14 +39,16 @@ export default defineConfig({
     port: 5175, // تقدر تغير البورت هنا لو مش عايز تعارض مع الـ dev server
     proxy: {
       "/api": {
-        target: "https://d2a5-197-160-170-109.ngrok-free.app",
+        target:
+          "https://griffin-characteristic-sequence-malpractice.trycloudflare.com",
         changeOrigin: true,
         headers: {
           "ngrok-skip-browser-warning": "true",
         },
       },
       "/socket.io": {
-        target: "https://d2a5-197-160-170-109.ngrok-free.app",
+        target:
+          "https://griffin-characteristic-sequence-malpractice.trycloudflare.com",
         ws: true,
         changeOrigin: true,
         headers: {

@@ -9,7 +9,8 @@ import type { ApiError } from "../types";
 
 // ─── Base URL ─────────────────────────────────────────────────
 
-export const BASE_URL = "https://d2a5-197-160-170-109.ngrok-free.app";
+export const BASE_URL =
+  "https://griffin-characteristic-sequence-malpractice.trycloudflare.com";
 console.log(`API Base URL: ${BASE_URL}`);
 export const API_URL = `${BASE_URL}/api`;
 
