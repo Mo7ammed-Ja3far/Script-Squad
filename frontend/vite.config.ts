@@ -15,14 +15,14 @@ export default defineConfig({
     port: 5175,
     proxy: {
       "/api": {
-        target: "https://f56f-162-55-178-223.ngrok-free.app/",
+        target: "https://f56f-162-55-178-223.ngrok-free.app",
         changeOrigin: true,
         headers: {
           "ngrok-skip-browser-warning": "true",
         },
       },
       "/socket.io": {
-        target: "https://f56f-162-55-178-223.ngrok-free.app/",
+        target: "https://f56f-162-55-178-223.ngrok-free.app",
         ws: true,
         changeOrigin: true,
         headers: {
@@ -37,14 +37,14 @@ export default defineConfig({
     port: 5175, // تقدر تغير البورت هنا لو مش عايز تعارض مع الـ dev server
     proxy: {
       "/api": {
-        target: "https://f56f-162-55-178-223.ngrok-free.app/",
+        target: "https://f56f-162-55-178-223.ngrok-free.app",
         changeOrigin: true,
         headers: {
           "ngrok-skip-browser-warning": "true",
         },
       },
       "/socket.io": {
-        target: "https://f56f-162-55-178-223.ngrok-free.app/",
+        target: "https://f56f-162-55-178-223.ngrok-free.app",
         ws: true,
         changeOrigin: true,
         headers: {
